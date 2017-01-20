@@ -5,13 +5,19 @@ import select
 
 def __error(errno):
     if errno != 0:
-        raise IOError(errno, error_message(errno))
+        raise IOError(errno, _string_c2p(error_message(errno)))
+
+cdef object _string_c2p_len(char * string, int length):
+    if string is NULL:
+        return None
+    else:
+        return string[:length].decode()
 
 cdef object _string_c2p(char * string):
     if string is NULL:
         return None
     else:
-        return string
+        return string.decode()
 
 class ZUid(object):
     """
@@ -23,20 +29,26 @@ class ZUid(object):
         self.time = 0
 
 cdef void _ZUid_c2p(ZUnique_Id_t * uid, object p_uid) except *:
-    p_uid.address = inet_ntoa(uid.zuid_addr)
-    p_uid.time = uid.tv.tv_sec + (uid.tv.tv_usec / 100000.0)
+    p_uid.address = _string_c2p(inet_ntoa(uid.zuid_addr))
+    p_uid.time = uid.tv.tv_sec + (uid.tv.tv_usec / 1000000.0)
 
 cdef void _ZUid_p2c(object uid, ZUnique_Id_t * c_uid) except *:
-    inet_aton(uid.address, &c_uid.zuid_addr)
-    c_uid.tv.tv_usec = int(uid.time)
-    c_uid.tv.tv_usec = int((uid.time - c_uid.tv.tv_usec) * 100000)
+    cdef object_pool pool
+    try:
+        object_pool_init(&pool)
+        inet_aton(_string_p2c(&pool, uid.address), &c_uid.zuid_addr)
+        c_uid.tv.tv_usec = int(uid.time)
+        c_uid.tv.tv_usec = int((uid.time - c_uid.tv.tv_usec) * 1000000)
+    finally:
+        object_pool_free(&pool);
 
 cdef char * _string_p2c(object_pool *pool, object string) except *:
     if string is None:
         return NULL
     else:
-        object_pool_append(pool, string);
-        return string
+        b_str = string.encode()
+        object_pool_append(pool, b_str);
+        return b_str
 
 class ZNotice(object):
     """
@@ -101,7 +113,7 @@ class ZNotice(object):
 cdef void _ZNotice_c2p(ZNotice_t * notice, object p_notice) except *:
     p_notice.kind = notice.z_kind
     _ZUid_c2p(&notice.z_uid, p_notice.uid)
-    p_notice.time = notice.z_time.tv_sec + (notice.z_time.tv_usec / 100000.0)
+    p_notice.time = notice.z_time.tv_sec + (notice.z_time.tv_usec / 1000000.0)
     p_notice.port = int(notice.z_port)
     p_notice.auth = bool(notice.z_auth)
 
@@ -118,7 +130,7 @@ cdef void _ZNotice_c2p(ZNotice_t * notice, object p_notice) except *:
     if notice.z_message is NULL:
         p_notice.message = None
     else:
-        p_notice.message = PyBytes_FromStringAndSize(notice.z_message, notice.z_message_len)
+        p_notice.message = _string_c2p_len(notice.z_message, notice.z_message_len)
 
     p_notice._charset = ZCharsetToString(notice.z_charset)
 
@@ -129,7 +141,7 @@ cdef void _ZNotice_p2c(object notice, ZNotice_t * c_notice, object_pool *pool) e
     _ZUid_p2c(notice.uid, &c_notice.z_uid)
     if notice.time != 0:
         c_notice.z_time.tv_sec = int(notice.time)
-        c_notice.z_time.tv_usec = int((notice.time - c_notice.z_time.tv_sec) * 100000)
+        c_notice.z_time.tv_usec = int((notice.time - c_notice.z_time.tv_sec) * 1000000)
     if notice.port != 0:
         c_notice.z_port = notice.port
     c_notice.z_auth = int(notice.auth)
@@ -143,18 +155,9 @@ cdef void _ZNotice_p2c(object notice, ZNotice_t * c_notice, object_pool *pool) e
     c_notice.z_num_other_fields = len(notice.other_fields)
     for i in range(c_notice.z_num_other_fields):
         c_notice.z_other_fields[i] = _string_p2c(pool, notice.other_fields[i])
-
-    cdef unsigned short charset
-    if isinstance(notice.message, unicode):
-        notice.encoded_message = notice.message.encode('utf-8')
-        charset = ZCHARSET_UTF_8
-    else:
-        notice.encoded_message = notice.message
-        charset = ZCHARSET_UNKNOWN
-
-    c_notice.z_message = _string_p2c(pool, notice.encoded_message)
-    c_notice.z_message_len = len(notice.encoded_message)
-    c_notice.z_charset = charset
+    c_notice.z_message = _string_p2c(pool, notice.message)
+    c_notice.z_message_len = len(notice.message.encode())
+    c_notice.z_charset = ZCHARSET_UTF_8
 
 def initialize():
     errno = ZInitialize()
@@ -178,24 +181,36 @@ def setFD(fd):
     __error(errno)
 
 def sub(cls, instance, recipient):
+    cdef object_pool pool
     cdef ZSubscription_t newsub[1]
 
-    newsub[0].zsub_class = cls
-    newsub[0].zsub_classinst = instance
-    newsub[0].zsub_recipient = recipient
+    try:
+        object_pool_init(&pool)
 
-    errno = ZSubscribeTo(newsub, 1, 0)
-    __error(errno)
+        newsub[0].zsub_class = _string_p2c(&pool, cls)
+        newsub[0].zsub_classinst = _string_p2c(&pool, instance)
+        newsub[0].zsub_recipient = _string_p2c(&pool, recipient)
+
+        errno = ZSubscribeTo(newsub, 1, 0)
+        __error(errno)
+    finally:
+        object_pool_free(&pool);
 
 def unsub(cls, instance, recipient):
+    cdef object_pool pool
     cdef ZSubscription_t delsub[1]
 
-    delsub[0].zsub_class = cls
-    delsub[0].zsub_classinst = instance
-    delsub[0].zsub_recipient = recipient
+    try:
+        object_pool_init(&pool)
 
-    errno = ZUnsubscribeTo(delsub, 1, 0)
-    __error(errno)
+        delsub[0].zsub_class = _string_p2c(&pool, cls)
+        delsub[0].zsub_classinst = _string_p2c(&pool, instance)
+        delsub[0].zsub_recipient = _string_p2c(&pool, recipient)
+
+        errno = ZUnsubscribeTo(delsub, 1, 0)
+        __error(errno)
+    finally:
+        object_pool_free(&pool);
 
 def cancelSubs():
     errno = ZCancelSubscriptions(0)
@@ -226,10 +241,10 @@ def receive(block=False):
     return p_notice
 
 def sender():
-    return ZGetSender()
+    return _string_c2p(ZGetSender())
 
 def realm():
-    return ZGetRealm()
+    return _string_c2p(ZGetRealm())
 
 def getSubscriptions():
     cdef ZSubscription_t *csubs
@@ -248,7 +263,9 @@ def getSubscriptions():
 
         subs = []
         for i in range(num):
-            subs.append((csubs[i].zsub_class, csubs[i].zsub_classinst, csubs[i].zsub_recipient))
+            subs.append((_string_c2p(csubs[i].zsub_class),
+                         _string_c2p(csubs[i].zsub_classinst),
+                         _string_c2p(csubs[i].zsub_recipient)))
         return subs
     finally:
         ZFlushSubscriptions()

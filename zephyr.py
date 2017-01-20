@@ -17,7 +17,7 @@ def init():
         __inited = True
 
 def realm():
-    return _z.realm().decode('utf-8')
+    return _z.realm()
 
 class Subscriptions(set):
     """
@@ -45,10 +45,8 @@ class Subscriptions(set):
             item[2] = item[2][1:]
 
         if '@' not in item[2]:
-            item[2] += '@%s' % realm()
+            item[2] += '@{}'.format(realm())
 
-        if is_py3:
-            item = [bytes(i, "utf-8") for i in item]
         print(item)
         return tuple(item)
 
