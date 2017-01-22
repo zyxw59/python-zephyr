@@ -29,7 +29,7 @@ class Subscriptions(set):
     """
     def __new__(cls):
         if not '_instance' in cls.__dict__:
-            cls._instance = super(Subscriptions, cls).__new__(cls)
+            cls._instance = super().__new__(cls)
             init()
         return cls._instance
 
@@ -47,7 +47,6 @@ class Subscriptions(set):
         if '@' not in item[2]:
             item[2] += '@{}'.format(realm())
 
-        print(item)
         return tuple(item)
 
     def add(self, item):
@@ -58,7 +57,7 @@ class Subscriptions(set):
 
         _z.sub(*item)
 
-        super(Subscriptions, self).add(item)
+        super().add(item)
 
     def remove(self, item):
         item = self._fixTuple(item)
@@ -68,4 +67,4 @@ class Subscriptions(set):
 
         _z.unsub(*item)
 
-        super(Subscriptions, self).remove(item)
+        super().remove(item)
