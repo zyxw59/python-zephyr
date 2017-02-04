@@ -196,6 +196,26 @@ def sub(cls, instance, recipient):
     finally:
         object_pool_free(&pool);
 
+def subAll(lst):
+    cdef object_pool pool
+    cdef ZSubscription_t *newsubs
+    cdef unsigned int i
+
+    newsubs = <ZSubscription_t*>calloc(len(lst), sizeof(ZSubscription_t))
+    try:
+        object_pool_init(&pool)
+        for 0 <= i < len(lst):
+            newsubs[i].zsub_class = _string_p2c(&pool, lst[i][0])
+            newsubs[i].zsub_classinst = _string_p2c(&pool, lst[i][1])
+            newsubs[i].zsub_recipient = _string_p2c(&pool, lst[i][2])
+
+        errno = ZSubscribeTo(newsubs, len(lst), 0)
+        __error(errno)
+    finally:
+        if newsubs:
+            free(newsubs);
+
+
 def unsub(cls, instance, recipient):
     cdef object_pool pool
     cdef ZSubscription_t delsub[1]

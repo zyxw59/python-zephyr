@@ -59,6 +59,12 @@ class Subscriptions(set):
 
         super().add(item)
 
+    def sub_all(self, subsfile):
+        """Subscribe to all subscriptions listed in subsfile"""
+        with open(subsfile) as f:
+            _z.subAll([l.rstrip('\n').split(',', 2) for l in f.readlines()])
+        super().update(_z.getSubscriptions())
+
     def remove(self, item):
         item = self._fixTuple(item)
 
